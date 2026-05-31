@@ -1102,28 +1102,27 @@
             const endTime = new Date(slot.endTime);
             const isRental = slot.price > 0;
             
-            let canBook = true;
-            let warningMessage = '';
-            
-            if (isRental) {
-                if (now > endTime) {
-                    canBook = false;
-                    warningMessage = '<div style="background:#f8d7da; padding:12px; border-radius:12px; margin-bottom:12px; color:#721c24;"><strong>⚠️ This rental period has expired.</strong><br>Cannot book expired rental.</div>';
-                }
-            } else {
-                if (now > startTime) {
-                    canBook = false;
-                    warningMessage = '<div style="background:#f8d7da; padding:12px; border-radius:12px; margin-bottom:12px; color:#721c24;"><strong>⚠️ This slot has already started.</strong><br>Cannot book a slot that has already begun.</div>';
-                }
-            }
-            
-            if (!canBook) {
-                document.getElementById('app').insertAdjacentHTML('beforeend', `<div id="bookModal" class="modal active"><div class="modal-content"><h3>📝 Cannot Book</h3>${warningMessage}<button class="btn-secondary" onclick="closeBookModal()">Close</button></div></div>`);
+            // Check if slot is already occupied (someone has entered)
+            const activeOccupiedBooking = allBookings.find(b => b.slotId === slot.id && b.status === 'active' && b.entryLogged === true);
+            if (activeOccupiedBooking) {
+                showToast('⚠️ This slot is currently occupied. Cannot book.');
                 return;
             }
             
+            // Check if slot has expired
+            if (now > endTime) {
+                showToast('⚠️ This slot has expired. Cannot book.');
+                return;
+            }
+            
+            // For free slots, show warning if start time has passed but still allow booking
+            let startWarning = '';
+            if (!isRental && now > startTime) {
+                startWarning = '<div style="background:#fff3cd; padding:12px; border-radius:12px; margin-bottom:12px; color:#856404;"><strong>⚠️ Note:</strong> This slot started at ' + startTime.toLocaleTimeString() + '. Please confirm your guest can still arrive.</div>';
+            }
+            
             if (isRental) {
-                // Get min and max dates for date pickers
+                // Rental booking form
                 const minDate = new Date(slot.startTime);
                 const maxDate = new Date(slot.endTime);
                 const today = new Date();
@@ -1181,7 +1180,6 @@
                         </div>
                     </div>
                 `);
-                // Set end date default to start date + 1 day
                 const startDateInput = document.getElementById('rentalStartDate');
                 const endDateInput = document.getElementById('rentalEndDate');
                 if (startDateInput && endDateInput) {
@@ -1193,6 +1191,7 @@
             } else {
                 // Free booking form
                 document.getElementById('app').insertAdjacentHTML('beforeend', `<div id="bookModal" class="modal active"><div class="modal-content"><h3>📝 Book for Guest</h3>
+                    ${startWarning}
                     <div class="input-group"><label>Guest Name</label><input type="text" id="guestName"></div>
                     <div class="input-group"><label>Guest Car Number</label><input type="text" id="guestCar"></div>
                     <div class="input-group"><label>Guest Mobile Number</label><input type="tel" id="guestMobile"></div>
@@ -1223,7 +1222,7 @@
             }
         };
         
-        window.confirmRentalBookingWithDates = async function(slotId, perDayPrice) {
+                window.confirmRentalBookingWithDates = async function(slotId, perDayPrice) {
             const bookingFor = document.getElementById('bookingFor')?.value;
             const startDate = document.getElementById('rentalStartDate')?.value;
             const endDate = document.getElementById('rentalEndDate')?.value;
@@ -1261,6 +1260,14 @@
             
             const now = new Date();
             const slotEndTime = new Date(slot.endTime);
+            
+            // Check if slot is occupied
+            const activeOccupiedBooking = allBookings.find(b => b.slotId === slot.id && b.status === 'active' && b.entryLogged === true);
+            if (activeOccupiedBooking) {
+                showToast('⚠️ This slot is currently occupied. Cannot book.');
+                return;
+            }
+            
             if (now > slotEndTime) {
                 showToast('⚠️ This rental period has expired. Cannot book.');
                 return;
@@ -1398,7 +1405,7 @@
             renderApp();
         };
         
-        window.confirmGuestBooking = async function(slotId) {
+                window.confirmGuestBooking = async function(slotId) {
             const guestName = document.getElementById('guestName')?.value;
             const guestCar = document.getElementById('guestCar')?.value;
             const guestMobile = document.getElementById('guestMobile')?.value;
@@ -1409,9 +1416,18 @@
             if (!slot || slot.status !== 'available') { showToast('Slot not available'); return; }
             
             const now = new Date();
-            const startTime = new Date(slot.startTime);
-            if (now > startTime) {
-                showToast('⚠️ Cannot book a slot that has already started');
+            const endTime = new Date(slot.endTime);
+            
+            // Check if slot is occupied
+            const activeOccupiedBooking = allBookings.find(b => b.slotId === slot.id && b.status === 'active' && b.entryLogged === true);
+            if (activeOccupiedBooking) {
+                showToast('⚠️ This slot is currently occupied. Cannot book.');
+                return;
+            }
+            
+            // Check if expired
+            if (now > endTime) {
+                showToast('⚠️ This slot has expired. Cannot book.');
                 return;
             }
             
