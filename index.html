@@ -27,8 +27,8 @@
         .btn-outline { background: transparent; border: 2px solid #667eea; color: #667eea; }
         .btn-success { background: #48bb78; color: white; }
         .btn-warning { background: #ed8936; color: white; }
-        .nav-tabs { display: flex; background: white; margin: 16px; border-radius: 16px; padding: 6px; gap: 6px; }
-        .nav-tab { flex: 1; padding: 12px; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; background: transparent; color: #718096; }
+        .nav-tabs { display: flex; background: white; margin: 16px; border-radius: 16px; padding: 6px; gap: 6px; flex-wrap: wrap; }
+        .nav-tab { flex: 1; padding: 12px 8px; border: none; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; background: transparent; color: #718096; }
         .nav-tab.active { background: #667eea; color: white; }
         .slot-card { background: #f8f9fa; border-radius: 16px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #667eea; }
         .flex-between { display: flex; justify-content: space-between; align-items: center; }
@@ -37,8 +37,30 @@
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
         .modal.active { display: flex; }
         .modal-content { background: white; border-radius: 24px; padding: 24px; width: 90%; max-width: 350px; max-height: 80vh; overflow-y: auto; }
-        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: white; padding: 10px 20px; border-radius: 40px; font-size: 14px; z-index: 1100; display: none; }
-        .toast.show { display: block; }
+        .toast { 
+            position: fixed; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            background: #333; 
+            color: white; 
+            padding: 16px 24px; 
+            border-radius: 12px; 
+            font-size: 16px; 
+            font-weight: 500;
+            z-index: 1200; 
+            display: none; 
+            text-align: center;
+            max-width: 80%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .toast.show { display: block; animation: fadeInOut 2.5s ease-in-out; }
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+            15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            85% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+        }
         .guest-banner { background: #fff3cd; padding: 12px 16px; margin: 12px 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
         .mode-buttons { display: flex; gap: 12px; margin: 16px; }
         .mode-btn { flex: 1; padding: 12px; border: none; border-radius: 16px; font-size: 14px; font-weight: 600; cursor: pointer; background: white; color: #667eea; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
@@ -64,6 +86,11 @@
         .mode-toggle-btn.active { background: #667eea; color: white; }
         .forgot-link { text-align: center; margin-top: 12px; font-size: 13px; }
         .forgot-link span { color: #667eea; cursor: pointer; text-decoration: underline; }
+        .search-result-item { background: #f8f9fa; border-radius: 16px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #667eea; }
+        .pending-warning { background: #fff3cd; border-left: 4px solid #ed8936; padding: 16px; border-radius: 12px; margin-bottom: 16px; }
+        .pending-warning strong { color: #ed8936; }
+        .price-tag { font-size: 18px; font-weight: bold; color: #9c27b0; }
+        .rental-badge { background: #9c27b0; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; margin-left: 8px; }
     </style>
     <!-- Firebase SDK -->
     <script type="module">
@@ -119,6 +146,7 @@
         let allNotifications = [];
         
         const SECURITY_PASSWORD = "amaatra123";
+        const RENTAL_PRICES = { daily: 50, weekly: 300, monthly: 1000 };
         
         // ============ SOCIETY CONFIGURATION ============
         const SOCIETY_CONFIG = {
@@ -138,7 +166,7 @@
             }
         };
         
-        // Admin emails - Add RWA member emails here
+        // Admin emails
         const ADMIN_EMAILS = ["anjanib21@gmail.com", "admin@amaatra.com"];
         
         function isAdminUser(email) {
@@ -149,7 +177,7 @@
             let toast = document.getElementById('toastMsg');
             toast.textContent = msg;
             toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2000);
+            setTimeout(() => toast.classList.remove('show'), 2500);
         }
         
         function showConfirmDialog(message, onConfirm, onCancel) {
@@ -294,14 +322,76 @@
                     <div class="header"><div class="flex-between"><div><h1>🛡️ ParkAmaatra</h1><div class="header-sub">Security Dashboard | सुरक्षा डैशबोर्ड</div></div><button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="logoutSecurity()">Logout</button></div></div>
                     <div class="nav-tabs"><button class="nav-tab active" onclick="showSecurityTab('code')">🔢 Verify Code</button><button class="nav-tab" onclick="showSecurityTab('pending')">⏳ Pending (${pendingBookings.length})</button><button class="nav-tab" onclick="showSecurityTab('search')">🔍 Search</button><button class="nav-tab" onclick="showSecurityTab('history')">📜 History</button></div>
                     <div id="codeTab" style="padding:0 16px;"><div class="card"><div class="card-title">🔢 Enter 6-Digit Booking Code</div><input type="text" id="verifyCode" placeholder="Enter code" maxlength="6" style="width:100%;padding:16px;font-size:24px;text-align:center;letter-spacing:4px;border:1px solid #e2e8f0;border-radius:12px;"><button class="btn btn-primary" style="margin-top:16px;" onclick="verifyCode()">Verify & Allow Entry</button><div id="verifyResult"></div></div></div>
-                    <div id="pendingTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">⏳ Pending Entries (${pendingBookings.length})</div>${pendingBookings.length === 0 ? '<div class="empty-state">No pending entries</div>' : pendingBookings.map(b => `<div class="slot-card"><div><strong>🚗 ${b.guestCar}</strong> | 📍 ${b.slotNumber}</div><div>👤 ${b.guestName} | 📞 ${b.guestMobile}</div><div>🏢 Host: ${b.hostName} (${b.hostFlat})</div><div>🔑 Code: ${b.bookingCode}</div><div>⏰ Valid until: ${new Date(b.endTime).toLocaleString()}</div><button class="btn btn-primary" style="margin-top:8px;" onclick="allowEntry('${b.id}')">✅ Allow Entry</button></div>`).join('')}</div></div>
-                    <div id="searchTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">🔍 Search Bookings</div><div class="input-group"><label>Search by Vehicle, Name, or Phone</label><input type="text" id="searchInput" placeholder="Enter vehicle number, guest name, parking owner name, booked by name, or phone (last 4 digits)" onkeyup="searchBookings()"></div><div id="searchResults"></div></div></div>
+                    <div id="pendingTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">⏳ Pending Entries (${pendingBookings.length})</div>${pendingBookings.length === 0 ? '<div class="empty-state">No pending entries</div>' : pendingBookings.map(b => `<div class="slot-card"><div><strong>🚗 ${b.guestCar}</strong> | 📍 ${b.slotNumber}</div><div>👤 ${b.guestName} | 📞 ${b.guestMobile}</div><div>🏢 Parking Owner: ${b.hostName} (${b.hostFlat})</div><div>🔑 Code: ${b.bookingCode}</div><div>⏰ Valid until: ${new Date(b.endTime).toLocaleString()}</div><button class="btn btn-primary" style="margin-top:8px;" onclick="allowEntry('${b.id}')">✅ Allow Entry</button></div>`).join('')}</div></div>
+                    <div id="searchTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">🔍 Search Bookings</div><div class="input-group"><label>Search by Vehicle, Name, or Phone</label><input type="text" id="searchInput" placeholder="Enter vehicle number, guest name, parking owner name, booked by name, or phone (last 4 digits)" onkeyup="performSearch()"></div><div id="searchResults"></div></div></div>
                     <div id="historyTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">📜 Entry History</div><div id="securityHistory"></div></div></div>
                     <div class="footer">Developed by <strong>ArandaTech Solution</strong></div>
                 </div>
             `;
             loadSecurityHistory();
         }
+        
+        window.performSearch = function() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+            const resultsDiv = document.getElementById('searchResults');
+            
+            if (searchTerm === '') {
+                resultsDiv.innerHTML = '<div class="empty-state">Enter search term</div>';
+                return;
+            }
+            
+            const results = allBookings.filter(b => {
+                const guestCar = b.guestCar.toLowerCase();
+                const guestName = b.guestName.toLowerCase();
+                const guestMobile = b.guestMobile;
+                const hostName = b.hostName.toLowerCase();
+                const bookedByName = b.bookedByName.toLowerCase();
+                const slotNumber = b.slotNumber.toLowerCase();
+                const bookingCode = b.bookingCode.toString();
+                const guestCarLast4 = guestCar.slice(-4);
+                const guestMobileLast4 = guestMobile.slice(-4);
+                
+                return guestCar.includes(searchTerm) ||
+                       guestCarLast4 === searchTerm ||
+                       guestName.includes(searchTerm) ||
+                       guestMobile.includes(searchTerm) ||
+                       guestMobileLast4 === searchTerm ||
+                       hostName.includes(searchTerm) ||
+                       bookedByName.includes(searchTerm) ||
+                       slotNumber.includes(searchTerm) ||
+                       bookingCode.includes(searchTerm);
+            });
+            
+            if (results.length === 0) {
+                resultsDiv.innerHTML = '<div class="empty-state">No matching bookings found</div>';
+                return;
+            }
+            
+            resultsDiv.innerHTML = results.map(b => {
+                const bookedByUser = allUsers.find(u => u.id === b.bookedBy);
+                const parkingOwner = allUsers.find(u => u.id === b.hostId);
+                return `
+                    <div class="search-result-item">
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:#1a73e8; padding:8px 10px; border-radius:8px; margin-bottom:10px; color:white;">
+                            <span style="font-weight:bold;">🚗 ${b.guestCar}</span>
+                            <span>📍 ${b.slotNumber}</span>
+                            <span>🔑 ${b.bookingCode}</span>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px;">
+                            <div><span style="color:#4fc3f7;">👤 Guest:</span> ${b.guestName}</div>
+                            <div><span style="color:#4fc3f7;">📞</span> ${b.guestMobile}</div>
+                            <div><span style="color:#81c784;">🏠 Booked by:</span> ${b.bookedByName} (${b.bookedByFlat})</div>
+                            <div><span style="color:#81c784;">📞</span> ${bookedByUser ? bookedByUser.mobile : 'N/A'}</div>
+                            <div><span style="color:#ce93d8;">🏢 Parking Owner:</span> ${b.hostName} (${b.hostFlat})</div>
+                            <div><span style="color:#ce93d8;">📞</span> ${parkingOwner ? parkingOwner.mobile : 'N/A'}</div>
+                            <div><span style="color:#ffb74d;">📅 From:</span> ${new Date(b.startTime).toLocaleString()}</div>
+                            <div><span style="color:#ffb74d;">📅 To:</span> ${new Date(b.endTime).toLocaleString()}</div>
+                            <div><span style="color:#48bb78;">✅ Status:</span> ${b.entryLogged ? 'Entry Granted' : (b.status === 'active' ? 'Pending Entry' : 'Expired')}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        };
         
         window.verifyCode = function() {
             const code = document.getElementById('verifyCode').value.trim();
@@ -313,7 +403,7 @@
                 resultDiv.innerHTML = `<div style="background:#d4edda;padding:12px;border-radius:12px;margin-top:12px;"><div style="color:#155724;">✅ ENTRY ALREADY GRANTED at ${new Date(booking.entryTime).toLocaleString()}</div></div>`;
                 return;
             }
-            resultDiv.innerHTML = `<div style="background:#d4edda;padding:12px;border-radius:12px;margin-top:12px;"><h3 style="color:#155724;">✅ VALID BOOKING</h3><div><strong>🚗 Vehicle:</strong> ${booking.guestCar}</div><div><strong>👤 Guest:</strong> ${booking.guestName}</div><div><strong>📞 Guest Phone:</strong> ${booking.guestMobile}</div><div><strong>📍 Slot:</strong> ${booking.slotNumber}</div><div><strong>🏢 Host:</strong> ${booking.hostName} (${booking.hostFlat})</div><div><strong>📅 Booked by:</strong> ${booking.bookedByName} (${booking.bookedByFlat})</div><div><strong>⏰ Booking period:</strong> ${new Date(booking.startTime).toLocaleString()} → ${new Date(booking.endTime).toLocaleString()}</div><button class="btn btn-primary" style="margin-top:12px;" onclick="allowEntry('${booking.id}')">✅ ALLOW ENTRY</button></div>`;
+            resultDiv.innerHTML = `<div style="background:#d4edda;padding:12px;border-radius:12px;margin-top:12px;"><h3 style="color:#155724;">✅ VALID BOOKING</h3><div><strong>🚗 Vehicle:</strong> ${booking.guestCar}</div><div><strong>👤 Guest:</strong> ${booking.guestName}</div><div><strong>📞 Guest Phone:</strong> ${booking.guestMobile}</div><div><strong>📍 Slot:</strong> ${booking.slotNumber}</div><div><strong>🏢 Parking Owner:</strong> ${booking.hostName} (${booking.hostFlat})</div><div><strong>📅 Booked by:</strong> ${booking.bookedByName} (${booking.bookedByFlat})</div><div><strong>⏰ Booking period:</strong> ${new Date(booking.startTime).toLocaleString()} → ${new Date(booking.endTime).toLocaleString()}</div><button class="btn btn-primary" style="margin-top:12px;" onclick="allowEntry('${booking.id}')">✅ ALLOW ENTRY</button></div>`;
         };
         
         window.allowEntry = async function(bookingId) {
@@ -333,16 +423,7 @@
             if (!div) return;
             const entries = allBookings.filter(b => b.entryLogged === true).slice(-20).reverse();
             if (entries.length === 0) { div.innerHTML = '<div class="empty-state">No entries yet</div>'; return; }
-            div.innerHTML = entries.map(b => `<div class="slot-card"><div><strong>🚗 ${b.guestCar}</strong> | 📍 ${b.slotNumber}</div><div>👤 ${b.guestName} | 📞 ${b.guestMobile}</div><div>🏢 Host: ${b.hostName} (${b.hostFlat})</div><div>⏰ ${new Date(b.startTime).toLocaleString()} → ${new Date(b.endTime).toLocaleString()}</div><div>✅ Entry: ${new Date(b.entryTime).toLocaleString()}</div></div>`).join('');
-        }
-        
-        function searchBookings() {
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
-            const resultsDiv = document.getElementById('searchResults');
-            if (searchTerm === '') { resultsDiv.innerHTML = '<div class="empty-state">Enter search term</div>'; return; }
-            const results = allBookings.filter(b => b.guestCar.toLowerCase().includes(searchTerm) || b.guestName.toLowerCase().includes(searchTerm) || b.hostName.toLowerCase().includes(searchTerm) || b.bookedByName.toLowerCase().includes(searchTerm));
-            if (results.length === 0) { resultsDiv.innerHTML = '<div class="empty-state">No matching bookings found</div>'; return; }
-            resultsDiv.innerHTML = results.map(b => `<div class="slot-card"><div><strong>🚗 ${b.guestCar}</strong> | 📍 ${b.slotNumber}</div><div>👤 ${b.guestName} | 📞 ${b.guestMobile}</div><div>🏢 Host: ${b.hostName}</div><div>🔑 Code: ${b.bookingCode}</div></div>`).join('');
+            div.innerHTML = entries.map(b => `<div class="slot-card"><div><strong>🚗 ${b.guestCar}</strong> | 📍 ${b.slotNumber}</div><div>👤 ${b.guestName} | 📞 ${b.guestMobile}</div><div>🏢 Parking Owner: ${b.hostName} (${b.hostFlat})</div><div>⏰ ${new Date(b.startTime).toLocaleString()} → ${new Date(b.endTime).toLocaleString()}</div><div>✅ Entry: ${new Date(b.entryTime).toLocaleString()}</div></div>`).join('');
         }
         
         window.showSecurityTab = function(tab) {
@@ -357,8 +438,12 @@
         };
         
         window.logoutSecurity = function() {
+            // Clear all security-related storage and state
             isSecurityLoggedIn = false;
             currentMode = 'resident';
+            localStorage.removeItem('securityLoggedIn');
+            localStorage.removeItem('currentUser');
+            currentUser = null;
             showToast('Security logged out');
             renderApp();
         };
@@ -409,13 +494,13 @@
                     <div class="header"><h1>🅿️ ParkAmaatra</h1><div class="header-sub">Amaatra Homes • Community Parking Share</div></div>
                     <div class="mode-buttons"><button class="mode-btn active" onclick="switchToResident()">🏠 Resident</button><button class="mode-btn" onclick="showSecurityLogin()">🛡️ Security</button></div>
                     <div class="guest-banner"><span>👋 Guest View</span><button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="showLoginModal()">Login / Signup</button></div>
-                    <div class="card"><div class="card-title">🔍 Available Parking Slots</div>${availableSlots.length === 0 ? '<div class="empty-state">No slots available</div>' : availableSlots.map(s => `<div class="slot-card"><div class="flex-between"><span style="font-weight:700;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span></div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p></div>`).join('')}</div>
+                    <div class="card"><div class="card-title">🔍 Available Parking Slots</div>${availableSlots.length === 0 ? '<div class="empty-state">No slots available</div>' : availableSlots.map(s => `<div class="slot-card"><div class="flex-between"><span style="font-weight:700;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span>${s.price ? `<span class="rental-badge">💰 ₹${s.price}</span>` : ''}</div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p></div>`).join('')}</div>
                     <div class="footer">Developed by <strong>ArandaTech Solution</strong></div>
                 </div>
                 <div id="loginModal" class="modal"><div class="modal-content">
                     <h3 style="margin-bottom:16px;">🔐 Resident Login</h3>
                     <div class="input-group"><label>Email</label><input type="email" id="loginEmail" placeholder="your@email.com"></div>
-                    <div class="input-group"><label>Password</label><input type="password" id="loginPassword" placeholder="Password"></div>
+                    <div class="input-group"><label>Password</label><input type="password" id="loginPassword" placeholder="Password" onkeypress="handleEnterKey(event)"></div>
                     <button class="btn btn-primary" onclick="loginWithEmail()">Login</button>
                     <div class="forgot-link"><span onclick="showForgotPassword()">Forgot Password?</span></div>
                     <div style="text-align:center;margin-top:12px;"><span style="color:#667eea;cursor:pointer;" onclick="showSignupModal()">New Resident? Sign Up</span></div>
@@ -423,6 +508,14 @@
                 </div></div>
             `;
         }
+        
+        // Handle Enter key on login form
+        window.handleEnterKey = function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                loginWithEmail();
+            }
+        };
         
         window.showSignupModal = function() {
             closeModal('loginModal');
@@ -435,7 +528,6 @@
                         <div class="input-group"><label>Password</label><input type="password" id="signupPassword" placeholder="Create a password (min 6 characters)"></div>
                         <div class="input-group"><label>Tower</label><select id="signupTower"><option value="">Select Tower</option>${SOCIETY_CONFIG.towers.map(t => `<option value="${t}">Tower ${t}</option>`).join('')}</select></div>
                         <div class="input-group"><label>Flat Number</label><input type="text" id="signupFlat" placeholder="e.g., 1104 (101-2204)"></div>
-                        <div class="input-group"><label>Do you have a car?</label><select id="signupHasCar"><option value="yes">Yes, I have a car</option><option value="no">No, I want to rent out</option></select></div>
                         <div class="input-group"><label>Parking Slot Number(s)</label><input type="text" id="signupSlots" placeholder="e.g., P-12, P-13"></div>
                         <button class="btn btn-primary" onclick="signup()">Sign Up</button>
                         <div style="text-align:center;margin-top:12px;"><span style="color:#667eea;cursor:pointer;" onclick="closeModal('signupModal');showLoginModal()">Already have account? Login</span></div>
@@ -456,14 +548,21 @@
                 const userCredential = await signInWithEmailAndPassword(auth, email, password);
                 const user = allUsers.find(u => u.email === email);
                 if (!user) { showToast('Account not found. Please sign up first.'); return; }
-                if (user.status === 'pending') { showToast('⚠️ Your account is pending admin approval.'); await signOut(auth); return; }
-                if (user.status === 'rejected') { showToast('❌ Your registration was rejected. Contact admin.'); await signOut(auth); return; }
                 
                 currentUser = user;
                 localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                localStorage.setItem('userLoggedIn', 'true');
                 closeModal('loginModal');
+                
+                if (user.status === 'pending') {
+                    showToast('⚠️ Your account is pending admin approval. Some features may be limited.');
+                } else if (user.status === 'rejected') {
+                    showToast('❌ Your registration was rejected. Contact admin.');
+                } else {
+                    showToast(`Welcome back ${user.name}!`);
+                }
+                
                 await loadNotificationsForUser(currentUser.id);
-                showToast(`Welcome back ${user.name}!`);
                 await loadDataFromFirebase();
                 renderApp();
             } catch (error) {
@@ -478,7 +577,6 @@
             const password = document.getElementById('signupPassword').value;
             const tower = document.getElementById('signupTower').value;
             const flat = document.getElementById('signupFlat').value;
-            const hasCar = document.getElementById('signupHasCar').value;
             const slotsRaw = document.getElementById('signupSlots').value;
             
             if (!name || !email || !password || !tower || !flat) { showToast('Please fill all fields'); return; }
@@ -488,7 +586,13 @@
             
             try {
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const newUser = { id: userCredential.user.uid, name, email, mobile: email, tower, flat, hasCar: hasCar === 'yes', parkingSlots: slotsRaw ? slotsRaw.split(',').map(s => s.trim()) : [], status: 'pending', createdAt: new Date().toISOString() };
+                const newUser = { 
+                    id: userCredential.user.uid, 
+                    name, email, mobile: email, tower, flat, 
+                    parkingSlots: slotsRaw ? slotsRaw.split(',').map(s => s.trim()) : [], 
+                    status: 'pending', 
+                    createdAt: new Date().toISOString() 
+                };
                 await saveToFirebase('users', newUser.id, newUser);
                 allUsers.push(newUser);
                 
@@ -498,23 +602,80 @@
                 }
                 
                 closeModal('signupModal');
-                showToast('Registration submitted! Waiting for admin approval.');
-                await signOut(auth);
+                showToast('✅ Registration submitted! Waiting for admin approval. You will be notified once approved.');
+                
+                currentUser = newUser;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                await loadDataFromFirebase();
                 renderApp();
-            } catch (error) { showToast('Signup failed. Email may already exist.'); }
+            } catch (error) { 
+                showToast('Signup failed. Email may already exist.'); 
+            }
         };
         
         window.showSecurityLogin = function() {
-            document.getElementById('app').insertAdjacentHTML('beforeend', `<div id="securityModal" class="modal active"><div class="modal-content"><h3 style="margin-bottom:16px;">🛡️ Security Login</h3><div class="input-group"><label>Password</label><input type="password" id="securityPwd" placeholder="Enter password"></div><button class="btn btn-primary" onclick="verifySecurityLogin()">Login</button><button class="btn-secondary" style="margin-top:12px;" onclick="closeModal('securityModal')">Cancel</button></div></div>`);
+            document.getElementById('app').insertAdjacentHTML('beforeend', `<div id="securityModal" class="modal active"><div class="modal-content"><h3 style="margin-bottom:16px;">🛡️ Security Login</h3><div class="input-group"><label>Password</label><input type="password" id="securityPwd" placeholder="Enter password" onkeypress="handleSecurityEnterKey(event)"></div><button class="btn btn-primary" onclick="verifySecurityLogin()">Login</button><button class="btn-secondary" style="margin-top:12px;" onclick="closeModal('securityModal')">Cancel</button></div></div>`);
+        };
+        
+        window.handleSecurityEnterKey = function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                verifySecurityLogin();
+            }
         };
         
         window.verifySecurityLogin = function() {
             const pwd = document.getElementById('securityPwd').value;
-            if (pwd === SECURITY_PASSWORD) { isSecurityLoggedIn = true; currentMode = 'security'; closeModal('securityModal'); showToast('Security login successful'); renderApp(); }
+            if (pwd === SECURITY_PASSWORD) { 
+                isSecurityLoggedIn = true; 
+                currentMode = 'security'; 
+                closeModal('securityModal'); 
+                localStorage.setItem('securityLoggedIn', 'true');
+                // Clear any existing user session
+                localStorage.removeItem('currentUser');
+                currentUser = null;
+                showToast('Security login successful'); 
+                renderApp(); 
+            }
             else { showToast('Invalid password'); }
         };
         
-        window.switchToResident = function() { currentMode = 'resident'; renderApp(); };
+        window.switchToResident = function() { 
+            currentMode = 'resident'; 
+            isSecurityLoggedIn = false;
+            localStorage.removeItem('securityLoggedIn');
+            renderApp(); 
+        };
+        
+        // ============ RENTAL FUNCTIONS ============
+        window.updateRentalPrice = function() {
+            const days = parseInt(document.getElementById('rentalDays')?.value);
+            const priceInput = document.getElementById('rentalPrice');
+            if (days && days >= 7) {
+                const totalPrice = days * 50;
+                priceInput.value = `₹${totalPrice} (${days} days @ ₹50/day)`;
+            } else if (days && days < 7) {
+                priceInput.value = `⚠️ Minimum 7 days required`;
+            } else {
+                priceInput.value = '';
+            }
+        };
+        
+        window.previewRentalPeriod = function() {
+            const startDate = document.getElementById('rentalStartDate')?.value;
+            const days = parseInt(document.getElementById('rentalDays')?.value);
+            const previewDiv = document.getElementById('rentalPreview');
+            
+            if (startDate && days && days >= 7) {
+                const endDate = new Date(startDate);
+                endDate.setDate(endDate.getDate() + days);
+                previewDiv.innerHTML = `<div class="datetime-confirm">📅 ${new Date(startDate).toLocaleDateString()} → ${endDate.toLocaleDateString()} (${days} days)</div>`;
+            } else if (startDate && days && days < 7) {
+                previewDiv.innerHTML = `<div class="datetime-confirm" style="background:#fff3cd; color:#856404;">⚠️ Minimum rental period is 7 days</div>`;
+            } else {
+                previewDiv.innerHTML = '';
+            }
+        };
         
         // ============ DATE/TIME FUNCTIONS ============
         window.confirmDateTime = function() {
@@ -536,21 +697,38 @@
         // ============ RESIDENT DASHBOARD ============
         function renderResidentApp() {
             const userParkingSlots = currentUser.parkingSlots || [];
-            const myOffers = allSlots.filter(s => s.hostId === currentUser.id);
+            const myFreeOffers = allSlots.filter(s => s.hostId === currentUser.id && !s.price);
+            const myRentalOffers = allSlots.filter(s => s.hostId === currentUser.id && s.price);
             const availableSlots = allSlots.filter(s => s.status === 'available' && s.hostId !== currentUser.id);
             const myBookings = allBookings.filter(b => b.bookedBy === currentUser.id);
             const unreadCount = getUnreadCount();
             const isAdmin = isAdminUser(currentUser.email);
+            const isPending = currentUser.status === 'pending';
             
             if (isAdmin && adminMode === 'admin') { renderAdminPanel(); return; }
             
+            const pendingWarning = isPending ? `
+                <div class="pending-warning">
+                    <strong>⏳ Account Pending Approval</strong><br>
+                    Your account is waiting for admin approval. Some features may be limited until approved.
+                </div>
+            ` : '';
+            
             document.getElementById('app').innerHTML = `
                 <div class="app-container">
-                    <div class="header"><div class="flex-between"><div><h1>🅿️ ParkAmaatra</h1><div class="header-sub">${currentUser.name} • ${currentUser.tower}-${currentUser.flat}</div></div><div style="display:flex; gap:10px;"><div class="notification-bell notification-icon" onclick="showNotifications()">🔔${unreadCount > 0 ? `<span class="notification-badge">${unreadCount}</span>` : ''}</div><button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="logout()">Logout</button></div></div></div>
+                    <div class="header"><div class="flex-between"><div><h1>🅿️ ParkAmaatra</h1><div class="header-sub">${currentUser.name} • ${currentUser.tower}-${currentUser.flat}${isPending ? ' (Pending Approval)' : ''}</div></div><div style="display:flex; gap:10px;"><div class="notification-bell notification-icon" onclick="showNotifications()">🔔${unreadCount > 0 ? `<span class="notification-badge">${unreadCount}</span>` : ''}</div><button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="logout()">Logout</button></div></div></div>
+                    ${pendingWarning}
                     ${isAdmin ? `<div class="mode-toggle"><button class="mode-toggle-btn ${adminMode === 'resident' ? 'active' : ''}" onclick="switchAdminMode('resident')">🏠 Resident Mode</button><button class="mode-toggle-btn ${adminMode === 'admin' ? 'active' : ''}" onclick="switchAdminMode('admin')">👑 Admin Mode</button></div>` : ''}
-                    <div class="nav-tabs"><button class="nav-tab active" onclick="showResidentTab('offer')">📤 Offer</button><button class="nav-tab" onclick="showResidentTab('available')">🔍 Find</button><button class="nav-tab" onclick="showResidentTab('history')">📜 History</button></div>
+                    <div class="nav-tabs">
+                        <button class="nav-tab active" onclick="showResidentTab('offer')">📤 Offer</button>
+                        <button class="nav-tab" onclick="showResidentTab('rentout')">💰 Rent Out</button>
+                        <button class="nav-tab" onclick="showResidentTab('available')">🔍 Find</button>
+                        <button class="nav-tab" onclick="showResidentTab('history')">📜 History</button>
+                    </div>
+                    
+                    <!-- OFFER TAB (Free short-term) -->
                     <div id="offerResTab" style="padding:0 16px;">
-                        <div class="card"><div class="card-title">📤 Offer Your Parking</div>
+                        <div class="card"><div class="card-title">📤 Offer Your Parking (Free)</div>
                         ${userParkingSlots.length === 0 ? '<div class="empty-state">No parking slots assigned. Contact admin.</div>' : `
                             <div class="input-group"><label>Select Slot</label><select id="slotNum">${userParkingSlots.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
                             <div class="input-group"><label>Start Date</label><input type="date" id="startDate" style="margin-bottom:8px;" min="${new Date().toISOString().slice(0,10)}"></div>
@@ -562,17 +740,43 @@
                             <input type="hidden" id="startTime"><input type="hidden" id="endTime">
                             <button class="btn btn-primary" onclick="offerSlot()">List for Free</button>
                         `}</div>
-                        <div class="card"><div class="card-title">📋 My Active Offers</div>
-                        ${myOffers.filter(s => s.status === 'available').length === 0 ? '<div class="empty-state">No active offers</div>' : myOffers.filter(s => s.status === 'available').map(s => `<div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span></div><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn-danger" style="margin-top:8px;" onclick="confirmCancelOffer('${s.id}')">Cancel Offer</button></div>`).join('')}</div>
+                        <div class="card"><div class="card-title">📋 My Active Free Offers</div>
+                        ${myFreeOffers.filter(s => s.status === 'available').length === 0 ? '<div class="empty-state">No active offers</div>' : myFreeOffers.filter(s => s.status === 'available').map(s => `
+                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span></div><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn-danger" style="margin-top:8px;" onclick="confirmCancelOffer('${s.id}')">Cancel Offer</button></div>
+                        `).join('')}</div>
                     </div>
+                    
+                    <!-- RENT OUT TAB (Paid - minimum 7 days) -->
+                    <div id="rentoutResTab" style="display:none;padding:0 16px;">
+                        <div class="card"><div class="card-title">💰 Rent Out Your Parking (Minimum 7 days)</div>
+                        ${userParkingSlots.length === 0 ? '<div class="empty-state">No parking slots assigned. Contact admin.</div>' : `
+                            <div class="input-group"><label>Select Slot</label><select id="rentalSlotNumber">${userParkingSlots.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
+                            <div class="input-group"><label>Start Date</label><input type="date" id="rentalStartDate" min="${new Date().toISOString().slice(0,10)}" onchange="previewRentalPeriod()"></div>
+                            <div class="input-group"><label>Number of Days</label><input type="number" id="rentalDays" min="7" step="1" placeholder="Minimum 7 days" onchange="updateRentalPrice(); previewRentalPeriod()"></div>
+                            <div id="rentalPreview"></div>
+                            <div class="input-group"><label>Total Price</label><input type="text" id="rentalPrice" readonly style="background:#f7fafc;font-weight:bold;color:#9c27b0;"></div>
+                            <button class="btn btn-primary" onclick="rentOutParking()">💰 List for Rent</button>
+                        `}</div>
+                        <div class="card"><div class="card-title">📋 My Active Rental Listings</div>
+                        ${myRentalOffers.filter(s => s.status === 'available').length === 0 ? '<div class="empty-state">No active rental listings</div>' : myRentalOffers.filter(s => s.status === 'available').map(s => `
+                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span><span class="rental-badge">💰 ₹${s.price}</span></div><p>📅 ${new Date(s.startTime).toLocaleDateString()} → ${new Date(s.endTime).toLocaleDateString()} (${s.rentalDays} days)</p><button class="btn-danger" style="margin-top:8px;" onclick="confirmCancelOffer('${s.id}')">Cancel Listing</button></div>
+                        `).join('')}</div>
+                    </div>
+                    
+                    <!-- FIND TAB -->
                     <div id="availableResTab" style="display:none;padding:0 16px;">
                         <div class="card"><div class="card-title">🔍 Available Slots (From Other Residents)</div>
-                        ${availableSlots.length === 0 ? '<div class="empty-state">No slots available from other residents</div>' : availableSlots.map(s => `<div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span></div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn btn-primary" style="margin-top:8px;" onclick="bookSlot('${s.id}')">Book for Guest</button></div>`).join('')}</div>
+                        ${availableSlots.length === 0 ? '<div class="empty-state">No slots available from other residents</div>' : availableSlots.map(s => `
+                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span>${s.price ? `<span class="rental-badge">💰 ₹${s.price}</span>` : '<span class="rental-badge" style="background:#48bb78;">Free</span>'}</div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn btn-primary" style="margin-top:8px;" onclick="bookSlot('${s.id}')">Book for Guest</button></div>
+                        `).join('')}</div>
                     </div>
+                    
+                    <!-- HISTORY TAB -->
                     <div id="historyResTab" style="display:none;padding:0 16px;">
                         <div class="card"><div class="card-title">📜 My History</div>
-                        ${myOffers.length === 0 && myBookings.length === 0 ? '<div class="empty-state">No history</div>' : ''}
-                        ${myOffers.length > 0 ? `<h4 style="margin-bottom:8px;">📤 My Offers</h4>${myOffers.map(s => `<div class="slot-card"><strong>${s.slotNumber}</strong><p>📅 ${new Date(s.startTime).toLocaleString()} → ${new Date(s.endTime).toLocaleString()}</p><span>Status: ${s.status}</span></div>`).join('')}` : ''}
+                        ${myFreeOffers.length === 0 && myRentalOffers.length === 0 && myBookings.length === 0 ? '<div class="empty-state">No history</div>' : ''}
+                        ${myFreeOffers.length > 0 ? `<h4 style="margin-bottom:8px;">📤 My Free Offers</h4>${myFreeOffers.map(s => `<div class="slot-card"><strong>${s.slotNumber}</strong><p>📅 ${new Date(s.startTime).toLocaleString()} → ${new Date(s.endTime).toLocaleString()}</p><span>Status: ${s.status}</span></div>`).join('')}` : ''}
+                        ${myRentalOffers.length > 0 ? `<h4 style="margin:12px 0 8px;">💰 My Rental Listings</h4>${myRentalOffers.map(s => `<div class="slot-card"><strong>${s.slotNumber}</strong><p>📅 ${new Date(s.startTime).toLocaleString()} → ${new Date(s.endTime).toLocaleString()}</p><p style="color:#9c27b0;">💰 ₹${s.price}</p><span>Status: ${s.status}</span></div>`).join('')}` : ''}
                         ${myBookings.filter(b => b.status === 'active').length > 0 ? `<h4 style="margin:12px 0 8px;">📅 My Active Bookings</h4>${myBookings.filter(b => b.status === 'active').map(b => `<div class="slot-card"><strong>${b.slotNumber}</strong><p>🏢 Parking Owner: ${b.hostName} (${b.hostFlat})</p><p>👤 Guest: ${b.guestName} • ${b.guestCar}</p><p>📞 Guest: ${b.guestMobile}</p><p>⏰ ${new Date(b.startTime).toLocaleString()} → ${new Date(b.endTime).toLocaleString()}</p><p>🔑 Code: ${b.bookingCode}</p>${b.entryLogged ? '<span style="color:#48bb78;">✅ Entry Granted at ' + new Date(b.entryTime).toLocaleString() + '</span>' : '<span style="color:#ed8936;">⏳ Awaiting Entry</span>'}</div>`).join('')}` : '<div class="empty-state">No active bookings</div>'}
                         </div>
                     </div>
@@ -587,7 +791,43 @@
                 document.getElementById('startTimePicker').value = '09:00';
                 document.getElementById('endTimePicker').value = '17:00';
             }
+            if (document.getElementById('rentalStartDate')) {
+                document.getElementById('rentalStartDate').value = now.toISOString().slice(0, 10);
+            }
         }
+        
+        window.rentOutParking = async function() {
+            const slotNumber = document.getElementById('rentalSlotNumber')?.value;
+            const startDate = document.getElementById('rentalStartDate')?.value;
+            const days = parseInt(document.getElementById('rentalDays')?.value);
+            
+            if (!slotNumber || !startDate || !days) { showToast('Please fill all fields'); return; }
+            if (days < 7) { showToast('⚠️ Minimum rental period is 7 days'); return; }
+            
+            const endDate = new Date(startDate);
+            endDate.setDate(endDate.getDate() + days);
+            endDate.setHours(23, 59, 59);
+            const totalPrice = days * 50;
+            
+            const slot = { 
+                id: Date.now().toString(), 
+                hostId: currentUser.id, 
+                hostName: currentUser.name, 
+                hostFlat: `${currentUser.tower}-${currentUser.flat}`, 
+                slotNumber, 
+                startTime: new Date(startDate).toISOString(), 
+                endTime: endDate.toISOString(), 
+                status: 'available', 
+                rentalType: 'custom',
+                rentalDays: days,
+                price: totalPrice, 
+                createdAt: new Date().toISOString() 
+            };
+            await saveToFirebase('slots', slot.id, slot);
+            showToast(`✅ Listed for rent! Price: ₹${totalPrice} for ${days} days`);
+            await loadDataFromFirebase();
+            renderApp();
+        };
         
         // ============ ADMIN PANEL ============
         function renderAdminPanel() {
@@ -602,7 +842,7 @@
                     <div id="pendingAdminTab" class="tab-pane active" style="padding:0 16px;">
                         ${pendingUsers.length === 0 ? '<div class="empty-state">No pending registrations</div>' : pendingUsers.map(u => `
                             <div class="card"><div class="flex-between"><div><strong>${u.name}</strong><br><span style="font-size:13px;color:#718096;">${u.email}</span></div><span class="pending-badge">Pending</span></div>
-                            <div style="margin-top:12px;"><div>🏢 Tower ${u.tower} • Flat ${u.flat}</div><div>🚗 ${u.hasCar ? 'Has car' : 'No car (rental)'}</div><div>🅿️ Slots: ${u.parkingSlots.join(', ') || 'None'}</div><div>📅 Registered: ${new Date(u.createdAt).toLocaleDateString()}</div></div>
+                            <div style="margin-top:12px;"><div>🏢 Tower ${u.tower} • Flat ${u.flat}</div><div>🅿️ Slots: ${u.parkingSlots.join(', ') || 'None'}</div><div>📅 Registered: ${new Date(u.createdAt).toLocaleDateString()}</div></div>
                             <div style="display:flex;gap:10px;margin-top:16px;"><button class="btn-success" style="flex:1;" onclick="showApproveConfirm('${u.id}', '${u.name}')">✅ Approve</button><button class="btn-danger" style="flex:1;" onclick="showRejectConfirm('${u.id}', '${u.name}')">❌ Reject</button></div></div>
                         `).join('')}
                     </div>
@@ -648,9 +888,9 @@
         };
         
         window.confirmCancelOffer = function(slotId) {
-            showConfirmDialog('Cancel this offer?', async () => {
+            showConfirmDialog('Cancel this listing?', async () => {
                 await removeFromFirebase(`slots/${slotId}`);
-                showToast('Offer cancelled');
+                showToast('Listing cancelled');
                 await loadDataFromFirebase();
                 renderApp();
             });
@@ -658,6 +898,7 @@
         
         window.showResidentTab = function(tab) {
             document.getElementById('offerResTab').style.display = 'none';
+            document.getElementById('rentoutResTab').style.display = 'none';
             document.getElementById('availableResTab').style.display = 'none';
             document.getElementById('historyResTab').style.display = 'none';
             document.getElementById(tab + 'ResTab').style.display = 'block';
@@ -685,6 +926,7 @@
                 <div class="input-group"><label>Guest Name</label><input type="text" id="guestName"></div>
                 <div class="input-group"><label>Car Number</label><input type="text" id="guestCar"></div>
                 <div class="input-group"><label>Mobile Number</label><input type="tel" id="guestMobile"></div>
+                ${slot.price ? `<div style="background:#fff3cd; padding:12px; border-radius:12px; margin-bottom:12px;"><strong>💰 Price:</strong> ₹${slot.price}<br><small>Please pay the parking owner directly via cash or UPI</small></div>` : ''}
                 <button class="btn btn-primary" onclick="confirmBooking('${slotId}')">Confirm Booking</button>
                 <button class="btn-secondary" style="margin-top:8px;" onclick="closeBookModal()">Cancel</button></div></div>`);
         };
@@ -701,7 +943,7 @@
             if (!slot || slot.status !== 'available') { showToast('Slot not available'); return; }
             const now = new Date();
             if (new Date(slot.startTime) < now) { showToast('⚠️ Cannot book a slot with past date/time'); return; }
-            const booking = { id: Date.now().toString(), slotId, slotNumber: slot.slotNumber, hostId: slot.hostId, hostName: slot.hostName, hostFlat: slot.hostFlat, guestName, guestCar, guestMobile, bookedBy: currentUser.id, bookedByName: currentUser.name, bookedByFlat: `${currentUser.tower}-${currentUser.flat}`, startTime: slot.startTime, endTime: slot.endTime, status: 'active', bookingCode: Math.floor(100000 + Math.random() * 900000), bookedAt: new Date().toISOString(), entryLogged: false };
+            const booking = { id: Date.now().toString(), slotId, slotNumber: slot.slotNumber, hostId: slot.hostId, hostName: slot.hostName, hostFlat: slot.hostFlat, guestName, guestCar, guestMobile, bookedBy: currentUser.id, bookedByName: currentUser.name, bookedByFlat: `${currentUser.tower}-${currentUser.flat}`, startTime: slot.startTime, endTime: slot.endTime, status: 'active', bookingCode: Math.floor(100000 + Math.random() * 900000), bookedAt: new Date().toISOString(), entryLogged: false, price: slot.price };
             await saveToFirebase('bookings', booking.id, booking);
             await updateInFirebase(`slots/${slot.id}`, { status: 'booked' });
             await addNotification(slot.hostId, '📅 Your Slot Has Been Booked', `${currentUser.name} booked your slot ${slot.slotNumber} for guest ${guestName} (${guestCar}). Booking code: ${booking.bookingCode}`, 'booking');
@@ -715,6 +957,9 @@
             showConfirmDialog('Logout from ParkAmaatra?', async () => {
                 currentUser = null;
                 localStorage.removeItem('currentUser');
+                localStorage.removeItem('userLoggedIn');
+                localStorage.removeItem('securityLoggedIn');
+                localStorage.removeItem('adminMode');
                 await signOut(auth);
                 showToast('Logged out');
                 renderApp();
@@ -723,38 +968,109 @@
         
         // ============ MAIN RENDER ============
         async function renderApp() {
-            if (currentMode === 'security' && isSecurityLoggedIn) { renderSecurityDashboard(); }
-            else if (currentMode === 'security') { renderGuestView(); }
-            else if (currentUser) {
+            const storedUser = localStorage.getItem('currentUser');
+            const securitySession = localStorage.getItem('securityLoggedIn');
+            
+            if (securitySession === 'true' && !isSecurityLoggedIn) {
+                isSecurityLoggedIn = true;
+                currentMode = 'security';
+                await loadDataFromFirebase();
+                renderSecurityDashboard();
+                return;
+            }
+            
+            if (storedUser && !currentUser) {
+                try {
+                    currentUser = JSON.parse(storedUser);
+                    const exists = allUsers.find(u => u.id === currentUser.id);
+                    if (exists) {
+                        currentUser = exists;
+                        await loadNotificationsForUser(currentUser.id);
+                        const isAdmin = isAdminUser(currentUser.email);
+                        if (isAdmin) {
+                            const savedMode = localStorage.getItem('adminMode');
+                            adminMode = (savedMode === 'resident' || savedMode === 'admin') ? savedMode : 'admin';
+                        }
+                        renderResidentApp();
+                        return;
+                    }
+                } catch(e) { console.error(e); }
+            }
+            
+            if (currentMode === 'security' && isSecurityLoggedIn) {
+                renderSecurityDashboard();
+            } else if (currentMode === 'security') {
+                renderGuestView();
+            } else if (currentUser) {
                 await loadNotificationsForUser(currentUser.id);
                 const isAdmin = isAdminUser(currentUser.email);
-                if (isAdmin && adminMode === 'admin') { renderAdminPanel(); }
-                else { renderResidentApp(); }
-            } else { renderGuestView(); }
+                if (isAdmin && adminMode === 'admin') {
+                    renderAdminPanel();
+                } else {
+                    renderResidentApp();
+                }
+            } else {
+                renderGuestView();
+            }
         }
         
         // Initialize
         onAuthStateChanged(auth, async (user) => {
             await loadDataFromFirebase();
+            
+            const securitySession = localStorage.getItem('securityLoggedIn');
+            if (securitySession === 'true') {
+                isSecurityLoggedIn = true;
+                currentMode = 'security';
+                renderSecurityDashboard();
+                return;
+            }
+            
+            const storedUser = localStorage.getItem('currentUser');
+            if (storedUser && !user) {
+                try {
+                    const parsedUser = JSON.parse(storedUser);
+                    const exists = allUsers.find(u => u.id === parsedUser.id);
+                    if (exists) {
+                        currentUser = exists;
+                        const savedMode = localStorage.getItem('adminMode');
+                        adminMode = (savedMode === 'resident' || savedMode === 'admin') ? savedMode : 'admin';
+                        await loadNotificationsForUser(currentUser.id);
+                        renderApp();
+                        return;
+                    }
+                } catch(e) {}
+            }
+            
             if (user) {
                 const existingUser = allUsers.find(u => u.email === user.email);
-                if (existingUser && existingUser.status === 'approved') {
+                if (existingUser) {
                     currentUser = existingUser;
                     localStorage.setItem('currentUser', JSON.stringify(currentUser));
                     const savedMode = localStorage.getItem('adminMode');
                     adminMode = (savedMode === 'resident' || savedMode === 'admin') ? savedMode : 'admin';
-                } else if (existingUser && existingUser.status === 'pending') { showToast('Your account is pending admin approval.'); await signOut(auth); }
-                else if (existingUser && existingUser.status === 'rejected') { showToast('Your registration was rejected. Contact admin.'); await signOut(auth); }
-            } else {
-                const saved = localStorage.getItem('currentUser');
-                if (saved) { currentUser = JSON.parse(saved); const exists = allUsers.find(u => u.id === currentUser.id && u.status === 'approved'); if (!exists) currentUser = null; }
+                }
             }
             renderApp();
         });
         
         loadDataFromFirebase().then(() => {
-            const saved = localStorage.getItem('currentUser');
-            if (saved) { currentUser = JSON.parse(saved); const exists = allUsers.find(u => u.id === currentUser.id && u.status === 'approved'); if (!exists) currentUser = null; }
+            const securitySession = localStorage.getItem('securityLoggedIn');
+            if (securitySession === 'true') {
+                isSecurityLoggedIn = true;
+                currentMode = 'security';
+                renderSecurityDashboard();
+                return;
+            }
+            
+            const storedUser = localStorage.getItem('currentUser');
+            if (storedUser) {
+                try {
+                    currentUser = JSON.parse(storedUser);
+                    const exists = allUsers.find(u => u.id === currentUser.id);
+                    if (!exists) currentUser = null;
+                } catch(e) { currentUser = null; }
+            }
             renderApp();
         });
     </script>
