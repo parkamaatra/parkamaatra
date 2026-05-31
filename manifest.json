@@ -1,0 +1,8 @@
+{
+  "name": "ParkAmaatra",
+  "short_name": "ParkAmaatra",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#667eea",
+  "background_color": "#667eea"
+}
