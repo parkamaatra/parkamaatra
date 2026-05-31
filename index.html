@@ -91,6 +91,16 @@
         .pending-warning strong { color: #ed8936; }
         .price-tag { font-size: 18px; font-weight: bold; color: #9c27b0; }
         .rental-badge { background: #9c27b0; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; margin-left: 8px; }
+        .trust-banner { background: #e8f5e9; border-left: 4px solid #48bb78; padding: 12px 16px; margin: 0 16px 16px 16px; border-radius: 12px; display: flex; align-items: center; gap: 10px; }
+        .trust-banner span { font-size: 13px; color: #2e7d32; }
+        .status-available { color: #48bb78; }
+        .status-booked { color: #ed8936; }
+        .status-occupied { color: #f56565; }
+        .status-expired { color: #a0aec0; }
+        .security-stats { display: flex; gap: 12px; margin: 16px; flex-wrap: wrap; }
+        .stat-card { flex: 1; background: white; border-radius: 16px; padding: 12px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .stat-number { font-size: 24px; font-weight: bold; color: #667eea; }
+        .stat-label { font-size: 11px; color: #718096; margin-top: 4px; }
     </style>
     <!-- Firebase SDK -->
     <script type="module">
@@ -144,6 +154,7 @@
         let allSlots = [];
         let allBookings = [];
         let allNotifications = [];
+        let expiryInterval = null;
         
         const SECURITY_PASSWORD = "amaatra123";
         const RENTAL_PRICES = { daily: 50, weekly: 300, monthly: 1000 };
@@ -278,6 +289,52 @@
             return allUsers.some(u => u.tower === tower && u.flat === flat && u.status === 'approved');
         }
         
+        // ============ BOOKING EXPIRY CHECK (runs every minute) ============
+        async function checkAndExpireBookings() {
+            const now = new Date();
+            let expiredCount = 0;
+            
+            for (let booking of allBookings) {
+                if (booking.status === 'active' && !booking.entryLogged) {
+                    const endTime = new Date(booking.endTime);
+                    // Add 1 hour grace period
+                    const expiryTime = new Date(endTime.getTime() + 60 * 60 * 1000);
+                    
+                    if (now > expiryTime) {
+                        booking.status = 'expired';
+                        await updateInFirebase(`bookings/${booking.id}`, { status: 'expired' });
+                        
+                        // Return the slot to available
+                        const slot = allSlots.find(s => s.id === booking.slotId);
+                        if (slot && slot.status === 'booked') {
+                            slot.status = 'available';
+                            await updateInFirebase(`slots/${slot.id}`, { status: 'available' });
+                            
+                            // Notify the parking owner
+                            await addNotification(slot.hostId, '🔄 Your Slot is Available Again', `Your slot ${slot.slotNumber} is now available for booking. The previous booking expired without entry.`, 'expiry');
+                        }
+                        expiredCount++;
+                    }
+                }
+            }
+            
+            if (expiredCount > 0) {
+                console.log(`Expired ${expiredCount} bookings`);
+                await loadDataFromFirebase();
+                if (currentMode === 'security' && isSecurityLoggedIn) {
+                    renderSecurityDashboard();
+                } else if (currentUser) {
+                    renderResidentApp();
+                }
+            }
+        }
+        
+        // Start expiry checker
+        if (expiryInterval) clearInterval(expiryInterval);
+        expiryInterval = setInterval(() => {
+            checkAndExpireBookings();
+        }, 60000); // Check every minute
+        
         // ============ FORGOT PASSWORD ============
         window.showForgotPassword = function() {
             closeModal('loginModal');
@@ -315,21 +372,135 @@
         
         // ============ SECURITY FUNCTIONS ============
         function renderSecurityDashboard() {
+            const today = new Date().toDateString();
+            const todayBookings = allBookings.filter(b => new Date(b.startTime).toDateString() === today);
             const pendingBookings = allBookings.filter(b => b.status === 'active' && !b.entryLogged);
+            const activeBookings = allBookings.filter(b => b.status === 'active' && b.entryLogged === true && !b.exitLogged);
+            const completedBookings = allBookings.filter(b => b.entryLogged === true && b.exitLogged === true);
             
             document.getElementById('app').innerHTML = `
                 <div class="app-container">
                     <div class="header"><div class="flex-between"><div><h1>🛡️ ParkAmaatra</h1><div class="header-sub">Security Dashboard | सुरक्षा डैशबोर्ड</div></div><button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="logoutSecurity()">Logout</button></div></div>
-                    <div class="nav-tabs"><button class="nav-tab active" onclick="showSecurityTab('code')">🔢 Verify Code</button><button class="nav-tab" onclick="showSecurityTab('pending')">⏳ Pending (${pendingBookings.length})</button><button class="nav-tab" onclick="showSecurityTab('search')">🔍 Search</button><button class="nav-tab" onclick="showSecurityTab('history')">📜 History</button></div>
-                    <div id="codeTab" style="padding:0 16px;"><div class="card"><div class="card-title">🔢 Enter 6-Digit Booking Code</div><input type="text" id="verifyCode" placeholder="Enter code" maxlength="6" style="width:100%;padding:16px;font-size:24px;text-align:center;letter-spacing:4px;border:1px solid #e2e8f0;border-radius:12px;"><button class="btn btn-primary" style="margin-top:16px;" onclick="verifyCode()">Verify & Allow Entry</button><div id="verifyResult"></div></div></div>
-                    <div id="pendingTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">⏳ Pending Entries (${pendingBookings.length})</div>${pendingBookings.length === 0 ? '<div class="empty-state">No pending entries</div>' : pendingBookings.map(b => `<div class="slot-card"><div><strong>🚗 ${b.guestCar}</strong> | 📍 ${b.slotNumber}</div><div>👤 ${b.guestName} | 📞 ${b.guestMobile}</div><div>🏢 Parking Owner: ${b.hostName} (${b.hostFlat})</div><div>🔑 Code: ${b.bookingCode}</div><div>⏰ Valid until: ${new Date(b.endTime).toLocaleString()}</div><button class="btn btn-primary" style="margin-top:8px;" onclick="allowEntry('${b.id}')">✅ Allow Entry</button></div>`).join('')}</div></div>
-                    <div id="searchTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">🔍 Search Bookings</div><div class="input-group"><label>Search by Vehicle, Name, or Phone</label><input type="text" id="searchInput" placeholder="Enter vehicle number, guest name, parking owner name, booked by name, or phone (last 4 digits)" onkeyup="performSearch()"></div><div id="searchResults"></div></div></div>
-                    <div id="historyTab" style="display:none;padding:0 16px;"><div class="card"><div class="card-title">📜 Entry History</div><div id="securityHistory"></div></div></div>
+                    <div class="security-stats">
+                        <div class="stat-card"><div class="stat-number">${todayBookings.length}</div><div class="stat-label">📅 Today's Bookings</div></div>
+                        <div class="stat-card"><div class="stat-number" style="color:#ed8936;">${pendingBookings.length}</div><div class="stat-label">⏳ Pending Entry</div></div>
+                        <div class="stat-card"><div class="stat-number" style="color:#f56565;">${activeBookings.length}</div><div class="stat-label">🟢 Active Entry</div></div>
+                        <div class="stat-card"><div class="stat-number" style="color:#48bb78;">${completedBookings.length}</div><div class="stat-label">✅ Completed</div></div>
+                    </div>
+                    <div class="nav-tabs">
+                        <button class="nav-tab active" onclick="showSecurityTab('today')">📅 Today</button>
+                        <button class="nav-tab" onclick="showSecurityTab('pending')">⏳ Pending (${pendingBookings.length})</button>
+                        <button class="nav-tab" onclick="showSecurityTab('active')">🟢 Active (${activeBookings.length})</button>
+                        <button class="nav-tab" onclick="showSecurityTab('search')">🔍 Search</button>
+                        <button class="nav-tab" onclick="showSecurityTab('history')">📜 History</button>
+                    </div>
+                    
+                    <!-- TODAY TAB -->
+                    <div id="todayTab" style="padding:0 16px;">
+                        <div class="card"><div class="card-title">📅 Today's Bookings (${todayBookings.length})</div>
+                        ${todayBookings.length === 0 ? '<div class="empty-state">No bookings today</div>' : todayBookings.map(b => renderBookingCard(b, true)).join('')}</div>
+                    </div>
+                    
+                    <!-- PENDING TAB -->
+                    <div id="pendingTab" style="display:none;padding:0 16px;">
+                        <div class="card"><div class="card-title">⏳ Pending Entry (${pendingBookings.length})</div>
+                        ${pendingBookings.length === 0 ? '<div class="empty-state">No pending entries</div>' : pendingBookings.map(b => renderBookingCard(b, true)).join('')}</div>
+                    </div>
+                    
+                    <!-- ACTIVE TAB (Entered but not exited) -->
+                    <div id="activeTab" style="display:none;padding:0 16px;">
+                        <div class="card"><div class="card-title">🟢 Active Entries (${activeBookings.length})</div>
+                        ${activeBookings.length === 0 ? '<div class="empty-state">No active entries</div>' : activeBookings.map(b => renderBookingCard(b, true)).join('')}</div>
+                    </div>
+                    
+                    <!-- SEARCH TAB -->
+                    <div id="searchTab" style="display:none;padding:0 16px;">
+                        <div class="card"><div class="card-title">🔍 Search Bookings</div>
+                        <div class="input-group"><label>Search by Vehicle, Name, or Phone</label><input type="text" id="searchInput" placeholder="Enter vehicle number, guest name, parking owner name, booked by name, or phone (last 4 digits)" onkeyup="performSearch()"></div>
+                        <div id="searchResults"></div></div>
+                    </div>
+                    
+                    <!-- HISTORY TAB -->
+                    <div id="historyTab" style="display:none;padding:0 16px;">
+                        <div class="card"><div class="card-title">📜 Entry History</div><div id="securityHistory"></div></div>
+                    </div>
                     <div class="footer">Developed by <strong>ArandaTech Solution</strong></div>
                 </div>
             `;
             loadSecurityHistory();
         }
+        
+        function renderBookingCard(b, showAllowEntry = false) {
+            const isExpired = b.status === 'expired';
+            const isPending = !b.entryLogged && b.status === 'active';
+            const isOccupied = b.entryLogged === true && !b.exitLogged;
+            const isCompleted = b.entryLogged === true && b.exitLogged === true;
+            
+            let statusColor = '';
+            let statusIcon = '';
+            let statusText = '';
+            
+            if (isExpired) {
+                statusColor = 'status-expired';
+                statusIcon = '⚫';
+                statusText = 'Expired';
+            } else if (isPending) {
+                statusColor = 'status-booked';
+                statusIcon = '🟡';
+                statusText = 'Booked (Pending)';
+            } else if (isOccupied) {
+                statusColor = 'status-occupied';
+                statusIcon = '🔴';
+                statusText = 'Occupied';
+            } else if (isCompleted) {
+                statusColor = 'status-available';
+                statusIcon = '✅';
+                statusText = 'Completed';
+            } else {
+                statusColor = 'status-available';
+                statusIcon = '🟢';
+                statusText = 'Available';
+            }
+            
+            const bookedByUser = allUsers.find(u => u.id === b.bookedBy);
+            const parkingOwner = allUsers.find(u => u.id === b.hostId);
+            
+            return `
+                <div class="slot-card" style="margin-bottom:12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#1a73e8; padding:10px; border-radius:12px; margin-bottom:12px; color:white;">
+                        <span style="font-weight:bold;">🚗 ${b.guestCar}</span>
+                        <span>📍 ${b.slotNumber}</span>
+                        <span class="${statusColor}">${statusIcon} ${statusText}</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px;">
+                        <div><span style="color:#4fc3f7;">👤 Guest:</span> ${b.guestName}</div>
+                        <div><span style="color:#4fc3f7;">📞</span> ${b.guestMobile}</div>
+                        <div><span style="color:#81c784;">🏠 Booked by:</span> ${b.bookedByName} (${b.bookedByFlat})</div>
+                        <div><span style="color:#81c784;">📞</span> ${bookedByUser ? bookedByUser.mobile : 'N/A'}</div>
+                        <div><span style="color:#ce93d8;">🏢 Parking Owner:</span> ${b.hostName} (${b.hostFlat})</div>
+                        <div><span style="color:#ce93d8;">📞</span> ${parkingOwner ? parkingOwner.mobile : 'N/A'}</div>
+                        <div><span style="color:#ffb74d;">📅 From:</span> ${new Date(b.startTime).toLocaleString()}</div>
+                        <div><span style="color:#ffb74d;">📅 To:</span> ${new Date(b.endTime).toLocaleString()}</div>
+                        ${b.entryLogged ? `<div><span style="color:#48bb78;">✅ Entry:</span> ${new Date(b.entryTime).toLocaleString()}</div>` : ''}
+                        ${b.exitLogged ? `<div><span style="color:#48bb78;">🚪 Exit:</span> ${new Date(b.exitTime).toLocaleString()}</div>` : ''}
+                    </div>
+                    ${showAllowEntry && isPending && !isExpired ? `<button class="btn btn-primary" style="margin-top:12px;" onclick="allowEntry('${b.id}')">✅ ALLOW ENTRY</button>` : ''}
+                    ${showAllowEntry && isOccupied ? `<button class="btn btn-warning" style="margin-top:12px; background:#ff9800;" onclick="markExit('${b.id}')">🚪 MARK EXIT</button>` : ''}
+                </div>
+            `;
+        }
+        
+        window.markExit = async function(bookingId) {
+            const booking = allBookings.find(b => b.id === bookingId);
+            if (booking && !booking.exitLogged) {
+                booking.exitLogged = true;
+                booking.exitTime = new Date().toISOString();
+                await updateInFirebase(`bookings/${booking.id}`, { exitLogged: true, exitTime: booking.exitTime });
+                showToast(`✅ Exit recorded for ${booking.guestCar}`);
+                await loadDataFromFirebase();
+                renderSecurityDashboard();
+            }
+        };
         
         window.performSearch = function() {
             const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -367,30 +538,7 @@
                 return;
             }
             
-            resultsDiv.innerHTML = results.map(b => {
-                const bookedByUser = allUsers.find(u => u.id === b.bookedBy);
-                const parkingOwner = allUsers.find(u => u.id === b.hostId);
-                return `
-                    <div class="search-result-item">
-                        <div style="display:flex; justify-content:space-between; align-items:center; background:#1a73e8; padding:8px 10px; border-radius:8px; margin-bottom:10px; color:white;">
-                            <span style="font-weight:bold;">🚗 ${b.guestCar}</span>
-                            <span>📍 ${b.slotNumber}</span>
-                            <span>🔑 ${b.bookingCode}</span>
-                        </div>
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px;">
-                            <div><span style="color:#4fc3f7;">👤 Guest:</span> ${b.guestName}</div>
-                            <div><span style="color:#4fc3f7;">📞</span> ${b.guestMobile}</div>
-                            <div><span style="color:#81c784;">🏠 Booked by:</span> ${b.bookedByName} (${b.bookedByFlat})</div>
-                            <div><span style="color:#81c784;">📞</span> ${bookedByUser ? bookedByUser.mobile : 'N/A'}</div>
-                            <div><span style="color:#ce93d8;">🏢 Parking Owner:</span> ${b.hostName} (${b.hostFlat})</div>
-                            <div><span style="color:#ce93d8;">📞</span> ${parkingOwner ? parkingOwner.mobile : 'N/A'}</div>
-                            <div><span style="color:#ffb74d;">📅 From:</span> ${new Date(b.startTime).toLocaleString()}</div>
-                            <div><span style="color:#ffb74d;">📅 To:</span> ${new Date(b.endTime).toLocaleString()}</div>
-                            <div><span style="color:#48bb78;">✅ Status:</span> ${b.entryLogged ? 'Entry Granted' : (b.status === 'active' ? 'Pending Entry' : 'Expired')}</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
+            resultsDiv.innerHTML = results.map(b => renderBookingCard(b, true)).join('');
         };
         
         window.verifyCode = function() {
@@ -403,12 +551,18 @@
                 resultDiv.innerHTML = `<div style="background:#d4edda;padding:12px;border-radius:12px;margin-top:12px;"><div style="color:#155724;">✅ ENTRY ALREADY GRANTED at ${new Date(booking.entryTime).toLocaleString()}</div></div>`;
                 return;
             }
-            resultDiv.innerHTML = `<div style="background:#d4edda;padding:12px;border-radius:12px;margin-top:12px;"><h3 style="color:#155724;">✅ VALID BOOKING</h3><div><strong>🚗 Vehicle:</strong> ${booking.guestCar}</div><div><strong>👤 Guest:</strong> ${booking.guestName}</div><div><strong>📞 Guest Phone:</strong> ${booking.guestMobile}</div><div><strong>📍 Slot:</strong> ${booking.slotNumber}</div><div><strong>🏢 Parking Owner:</strong> ${booking.hostName} (${booking.hostFlat})</div><div><strong>📅 Booked by:</strong> ${booking.bookedByName} (${booking.bookedByFlat})</div><div><strong>⏰ Booking period:</strong> ${new Date(booking.startTime).toLocaleString()} → ${new Date(booking.endTime).toLocaleString()}</div><button class="btn btn-primary" style="margin-top:12px;" onclick="allowEntry('${booking.id}')">✅ ALLOW ENTRY</button></div>`;
+            resultDiv.innerHTML = renderBookingCard(booking, true);
         };
         
         window.allowEntry = async function(bookingId) {
             const booking = allBookings.find(b => b.id === bookingId);
             if (booking && !booking.entryLogged) {
+                const now = new Date();
+                const endTime = new Date(booking.endTime);
+                if (now > endTime) {
+                    showToast(`⚠️ Booking has expired. Cannot allow entry.`);
+                    return;
+                }
                 booking.entryLogged = true;
                 booking.entryTime = new Date().toISOString();
                 await updateInFirebase(`bookings/${booking.id}`, { entryLogged: true, entryTime: booking.entryTime });
@@ -421,16 +575,14 @@
         function loadSecurityHistory() {
             const div = document.getElementById('securityHistory');
             if (!div) return;
-            const entries = allBookings.filter(b => b.entryLogged === true).slice(-20).reverse();
+            const entries = allBookings.filter(b => b.entryLogged === true || b.exitLogged === true).slice(-30).reverse();
             if (entries.length === 0) { div.innerHTML = '<div class="empty-state">No entries yet</div>'; return; }
-            div.innerHTML = entries.map(b => `<div class="slot-card"><div><strong>🚗 ${b.guestCar}</strong> | 📍 ${b.slotNumber}</div><div>👤 ${b.guestName} | 📞 ${b.guestMobile}</div><div>🏢 Parking Owner: ${b.hostName} (${b.hostFlat})</div><div>⏰ ${new Date(b.startTime).toLocaleString()} → ${new Date(b.endTime).toLocaleString()}</div><div>✅ Entry: ${new Date(b.entryTime).toLocaleString()}</div></div>`).join('');
+            div.innerHTML = entries.map(b => renderBookingCard(b, false)).join('');
         }
         
         window.showSecurityTab = function(tab) {
-            document.getElementById('codeTab').style.display = 'none';
-            document.getElementById('pendingTab').style.display = 'none';
-            document.getElementById('searchTab').style.display = 'none';
-            document.getElementById('historyTab').style.display = 'none';
+            const tabs = ['todayTab', 'pendingTab', 'activeTab', 'searchTab', 'historyTab'];
+            tabs.forEach(t => { const el = document.getElementById(t); if (el) el.style.display = 'none'; });
             document.getElementById(tab + 'Tab').style.display = 'block';
             if (tab === 'history') loadSecurityHistory();
             document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
@@ -438,7 +590,6 @@
         };
         
         window.logoutSecurity = function() {
-            // Clear all security-related storage and state
             isSecurityLoggedIn = false;
             currentMode = 'resident';
             localStorage.removeItem('securityLoggedIn');
@@ -494,7 +645,8 @@
                     <div class="header"><h1>🅿️ ParkAmaatra</h1><div class="header-sub">Amaatra Homes • Community Parking Share</div></div>
                     <div class="mode-buttons"><button class="mode-btn active" onclick="switchToResident()">🏠 Resident</button><button class="mode-btn" onclick="showSecurityLogin()">🛡️ Security</button></div>
                     <div class="guest-banner"><span>👋 Guest View</span><button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="showLoginModal()">Login / Signup</button></div>
-                    <div class="card"><div class="card-title">🔍 Available Parking Slots</div>${availableSlots.length === 0 ? '<div class="empty-state">No slots available</div>' : availableSlots.map(s => `<div class="slot-card"><div class="flex-between"><span style="font-weight:700;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span>${s.price ? `<span class="rental-badge">💰 ₹${s.price}</span>` : ''}</div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p></div>`).join('')}</div>
+                    <div class="trust-banner"><span>🛡️ Only verified Amaatra residents can access ParkAmaatra. Every registration is manually approved by the Admin.</span></div>
+                    <div class="card"><div class="card-title">🔍 Available Parking Slots</div>${availableSlots.length === 0 ? '<div class="empty-state">No slots available</div>' : availableSlots.map(s => `<div class="slot-card"><div class="flex-between"><span style="font-weight:700;">📍 ${s.slotNumber}</span><span class="status-available">🟢 Available</span></div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p>${s.price ? `<p class="price-tag">💰 ₹${s.price}</p>` : ''}</div>`).join('')}</div>
                     <div class="footer">Developed by <strong>ArandaTech Solution</strong></div>
                 </div>
                 <div id="loginModal" class="modal"><div class="modal-content">
@@ -509,7 +661,6 @@
             `;
         }
         
-        // Handle Enter key on login form
         window.handleEnterKey = function(event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
@@ -631,7 +782,6 @@
                 currentMode = 'security'; 
                 closeModal('securityModal'); 
                 localStorage.setItem('securityLoggedIn', 'true');
-                // Clear any existing user session
                 localStorage.removeItem('currentUser');
                 currentUser = null;
                 showToast('Security login successful'); 
@@ -714,6 +864,17 @@
                 </div>
             ` : '';
             
+            // Helper to get status for slots
+            const getSlotStatus = (slot) => {
+                if (slot.status === 'available') return '<span class="status-available">🟢 Available</span>';
+                const booking = allBookings.find(b => b.slotId === slot.id && b.status === 'active');
+                if (booking) {
+                    if (booking.entryLogged) return '<span class="status-occupied">🔴 Occupied</span>';
+                    return '<span class="status-booked">🟡 Booked</span>';
+                }
+                return '<span class="status-available">🟢 Available</span>';
+            };
+            
             document.getElementById('app').innerHTML = `
                 <div class="app-container">
                     <div class="header"><div class="flex-between"><div><h1>🅿️ ParkAmaatra</h1><div class="header-sub">${currentUser.name} • ${currentUser.tower}-${currentUser.flat}${isPending ? ' (Pending Approval)' : ''}</div></div><div style="display:flex; gap:10px;"><div class="notification-bell notification-icon" onclick="showNotifications()">🔔${unreadCount > 0 ? `<span class="notification-badge">${unreadCount}</span>` : ''}</div><button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="logout()">Logout</button></div></div></div>
@@ -726,7 +887,7 @@
                         <button class="nav-tab" onclick="showResidentTab('history')">📜 History</button>
                     </div>
                     
-                    <!-- OFFER TAB (Free short-term) -->
+                    <!-- OFFER TAB -->
                     <div id="offerResTab" style="padding:0 16px;">
                         <div class="card"><div class="card-title">📤 Offer Your Parking (Free)</div>
                         ${userParkingSlots.length === 0 ? '<div class="empty-state">No parking slots assigned. Contact admin.</div>' : `
@@ -742,11 +903,11 @@
                         `}</div>
                         <div class="card"><div class="card-title">📋 My Active Free Offers</div>
                         ${myFreeOffers.filter(s => s.status === 'available').length === 0 ? '<div class="empty-state">No active offers</div>' : myFreeOffers.filter(s => s.status === 'available').map(s => `
-                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span></div><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn-danger" style="margin-top:8px;" onclick="confirmCancelOffer('${s.id}')">Cancel Offer</button></div>
+                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span>${getSlotStatus(s)}</div><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn-danger" style="margin-top:8px;" onclick="confirmCancelOffer('${s.id}')">Cancel Offer</button></div>
                         `).join('')}</div>
                     </div>
                     
-                    <!-- RENT OUT TAB (Paid - minimum 7 days) -->
+                    <!-- RENT OUT TAB -->
                     <div id="rentoutResTab" style="display:none;padding:0 16px;">
                         <div class="card"><div class="card-title">💰 Rent Out Your Parking (Minimum 7 days)</div>
                         ${userParkingSlots.length === 0 ? '<div class="empty-state">No parking slots assigned. Contact admin.</div>' : `
@@ -759,7 +920,7 @@
                         `}</div>
                         <div class="card"><div class="card-title">📋 My Active Rental Listings</div>
                         ${myRentalOffers.filter(s => s.status === 'available').length === 0 ? '<div class="empty-state">No active rental listings</div>' : myRentalOffers.filter(s => s.status === 'available').map(s => `
-                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span><span class="rental-badge">💰 ₹${s.price}</span></div><p>📅 ${new Date(s.startTime).toLocaleDateString()} → ${new Date(s.endTime).toLocaleDateString()} (${s.rentalDays} days)</p><button class="btn-danger" style="margin-top:8px;" onclick="confirmCancelOffer('${s.id}')">Cancel Listing</button></div>
+                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span class="status-available">🟢 Available</span><span class="rental-badge">💰 ₹${s.price}</span></div><p>📅 ${new Date(s.startTime).toLocaleDateString()} → ${new Date(s.endTime).toLocaleDateString()} (${s.rentalDays} days)</p><button class="btn-danger" style="margin-top:8px;" onclick="confirmCancelOffer('${s.id}')">Cancel Listing</button></div>
                         `).join('')}</div>
                     </div>
                     
@@ -767,7 +928,7 @@
                     <div id="availableResTab" style="display:none;padding:0 16px;">
                         <div class="card"><div class="card-title">🔍 Available Slots (From Other Residents)</div>
                         ${availableSlots.length === 0 ? '<div class="empty-state">No slots available from other residents</div>' : availableSlots.map(s => `
-                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span style="color:#48bb78;">Available</span>${s.price ? `<span class="rental-badge">💰 ₹${s.price}</span>` : '<span class="rental-badge" style="background:#48bb78;">Free</span>'}</div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn btn-primary" style="margin-top:8px;" onclick="bookSlot('${s.id}')">Book for Guest</button></div>
+                            <div class="slot-card"><div class="flex-between"><span style="font-weight:600;">📍 ${s.slotNumber}</span><span class="status-available">🟢 Available</span>${s.price ? `<span class="rental-badge">💰 ₹${s.price}</span>` : '<span class="rental-badge" style="background:#48bb78;">Free</span>'}</div><p>🏢 ${s.hostName} (${s.hostFlat})</p><p>📅 ${new Date(s.startTime).toLocaleString()} - ${new Date(s.endTime).toLocaleString()}</p><button class="btn btn-primary" style="margin-top:8px;" onclick="bookSlot('${s.id}')">Book for Guest</button></div>
                         `).join('')}</div>
                     </div>
                     
@@ -906,12 +1067,20 @@
             if (event && event.target) event.target.classList.add('active');
         };
         
-        window.offerSlot = async function() {
+                window.offerSlot = async function() {
             const slotNumber = document.getElementById('slotNum').value;
             const startTime = document.getElementById('startTime').value;
             const endTime = document.getElementById('endTime').value;
             if (!slotNumber || !startTime || !endTime) { showToast('Please confirm date & time first using the "Confirm Date & Time" button'); return; }
+            
+            const now = new Date();
+            const startDateTime = new Date(startTime);
+            if (startDateTime < now) {
+                showToast('⚠️ Cannot offer a slot with past date/time');
+                return;
+            }
             if (new Date(endTime) <= new Date(startTime)) { showToast('End time must be after start time'); return; }
+            
             const slot = { id: Date.now().toString(), hostId: currentUser.id, hostName: currentUser.name, hostFlat: `${currentUser.tower}-${currentUser.flat}`, slotNumber, startTime, endTime, status: 'available', createdAt: new Date().toISOString() };
             await saveToFirebase('slots', slot.id, slot);
             showToast('Slot offered successfully!');
@@ -919,21 +1088,363 @@
             renderApp();
         };
         
-        window.bookSlot = function(slotId) {
+                window.bookSlot = function(slotId) {
             const slot = allSlots.find(s => s.id === slotId);
             if (!slot || slot.status !== 'available') { showToast('Slot not available'); return; }
-            document.getElementById('app').insertAdjacentHTML('beforeend', `<div id="bookModal" class="modal active"><div class="modal-content"><h3>📝 Guest Details</h3>
-                <div class="input-group"><label>Guest Name</label><input type="text" id="guestName"></div>
-                <div class="input-group"><label>Car Number</label><input type="text" id="guestCar"></div>
-                <div class="input-group"><label>Mobile Number</label><input type="tel" id="guestMobile"></div>
-                ${slot.price ? `<div style="background:#fff3cd; padding:12px; border-radius:12px; margin-bottom:12px;"><strong>💰 Price:</strong> ₹${slot.price}<br><small>Please pay the parking owner directly via cash or UPI</small></div>` : ''}
-                <button class="btn btn-primary" onclick="confirmBooking('${slotId}')">Confirm Booking</button>
-                <button class="btn-secondary" style="margin-top:8px;" onclick="closeBookModal()">Cancel</button></div></div>`);
+            
+            const now = new Date();
+            const startTime = new Date(slot.startTime);
+            const endTime = new Date(slot.endTime);
+            const isRental = slot.price > 0;
+            
+            let canBook = true;
+            let warningMessage = '';
+            
+            if (isRental) {
+                if (now > endTime) {
+                    canBook = false;
+                    warningMessage = '<div style="background:#f8d7da; padding:12px; border-radius:12px; margin-bottom:12px; color:#721c24;"><strong>⚠️ This rental period has expired.</strong><br>Cannot book expired rental.</div>';
+                }
+            } else {
+                if (now > startTime) {
+                    canBook = false;
+                    warningMessage = '<div style="background:#f8d7da; padding:12px; border-radius:12px; margin-bottom:12px; color:#721c24;"><strong>⚠️ This slot has already started.</strong><br>Cannot book a slot that has already begun.</div>';
+                }
+            }
+            
+            if (!canBook) {
+                document.getElementById('app').insertAdjacentHTML('beforeend', `<div id="bookModal" class="modal active"><div class="modal-content"><h3>📝 Cannot Book</h3>${warningMessage}<button class="btn-secondary" onclick="closeBookModal()">Close</button></div></div>`);
+                return;
+            }
+            
+            if (isRental) {
+                // Get min and max dates for date pickers
+                const minDate = new Date(slot.startTime);
+                const maxDate = new Date(slot.endTime);
+                const today = new Date();
+                const minSelectDate = minDate > today ? minDate : today;
+                
+                const minDateStr = minSelectDate.toISOString().slice(0, 10);
+                const maxDateStr = maxDate.toISOString().slice(0, 10);
+                const perDayPrice = slot.price / slot.rentalDays;
+                
+                document.getElementById('app').insertAdjacentHTML('beforeend', `
+                    <div id="bookModal" class="modal active">
+                        <div class="modal-content" style="max-width: 380px;">
+                            <h3>🚗 Rent Parking Slot - ${slot.slotNumber}</h3>
+                            <div style="background:#f0f2f5; padding:12px; border-radius:12px; margin-bottom:16px;">
+                                <div><strong>📅 Available Period:</strong> ${minDate.toLocaleDateString()} - ${maxDate.toLocaleDateString()}</div>
+                                <div><strong>💰 Price:</strong> ₹${perDayPrice} per day</div>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label>Book for:</label>
+                                <select id="bookingFor" onchange="toggleRentalGuestFields()">
+                                    <option value="self">Myself (I will use the parking)</option>
+                                    <option value="guest">My Guest</option>
+                                </select>
+                            </div>
+                            
+                            <div id="rentalSelfFields">
+                                <div class="input-group"><label>Your Car Number</label><input type="text" id="selfCar" placeholder="Enter your car number"></div>
+                                <div class="input-group"><label>Your Mobile Number</label><input type="tel" id="selfMobile" placeholder="10-digit mobile number"></div>
+                            </div>
+                            
+                            <div id="rentalGuestFields" style="display:none;">
+                                <div class="input-group"><label>Guest Name</label><input type="text" id="guestName" placeholder="Enter guest name"></div>
+                                <div class="input-group"><label>Guest Car Number</label><input type="text" id="guestCar" placeholder="Enter guest car number"></div>
+                                <div class="input-group"><label>Guest Mobile Number</label><input type="tel" id="guestMobile" placeholder="10-digit mobile number"></div>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label>Start Date</label>
+                                <input type="date" id="rentalStartDate" min="${minDateStr}" value="${minDateStr}" onchange="updateRentalPriceByDates(${perDayPrice})">
+                            </div>
+                            
+                            <div class="input-group">
+                                <label>End Date</label>
+                                <input type="date" id="rentalEndDate" min="${minDateStr}" value="${minDateStr}" onchange="updateRentalPriceByDates(${perDayPrice})">
+                            </div>
+                            
+                            <div class="input-group">
+                                <label>Total Price</label>
+                                <input type="text" id="rentalTotalPrice" readonly style="background:#f7fafc; font-weight:bold; color:#9c27b0;">
+                            </div>
+                            
+                            <button class="btn btn-primary" onclick="confirmRentalBookingWithDates('${slotId}', ${perDayPrice})">✅ Confirm Rental</button>
+                            <button class="btn-secondary" style="margin-top:8px;" onclick="closeBookModal()">Cancel</button>
+                        </div>
+                    </div>
+                `);
+                // Set end date default to start date + 1 day
+                const startDateInput = document.getElementById('rentalStartDate');
+                const endDateInput = document.getElementById('rentalEndDate');
+                if (startDateInput && endDateInput) {
+                    const defaultEnd = new Date(startDateInput.value);
+                    defaultEnd.setDate(defaultEnd.getDate() + 1);
+                    endDateInput.value = defaultEnd.toISOString().slice(0, 10);
+                }
+                updateRentalPriceByDates(perDayPrice);
+            } else {
+                // Free booking form
+                document.getElementById('app').insertAdjacentHTML('beforeend', `<div id="bookModal" class="modal active"><div class="modal-content"><h3>📝 Book for Guest</h3>
+                    <div class="input-group"><label>Guest Name</label><input type="text" id="guestName"></div>
+                    <div class="input-group"><label>Guest Car Number</label><input type="text" id="guestCar"></div>
+                    <div class="input-group"><label>Guest Mobile Number</label><input type="tel" id="guestMobile"></div>
+                    <button class="btn btn-primary" onclick="confirmGuestBooking('${slotId}')">Confirm Booking</button>
+                    <button class="btn-secondary" style="margin-top:8px;" onclick="closeBookModal()">Cancel</button></div></div>`);
+            }
+        };
+        
+        window.updateRentalPriceByDates = function(perDayPrice) {
+            const startDate = document.getElementById('rentalStartDate')?.value;
+            const endDate = document.getElementById('rentalEndDate')?.value;
+            const priceInput = document.getElementById('rentalTotalPrice');
+            
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+                const diffTime = Math.abs(end - start);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (diffDays >= 1 && end >= start) {
+                    const totalPrice = diffDays * perDayPrice;
+                    priceInput.value = `₹${totalPrice} (${diffDays} days @ ₹${perDayPrice}/day)`;
+                } else {
+                    priceInput.value = `⚠️ End date must be after start date`;
+                }
+            } else {
+                priceInput.value = '';
+            }
+        };
+        
+        window.confirmRentalBookingWithDates = async function(slotId, perDayPrice) {
+            const bookingFor = document.getElementById('bookingFor')?.value;
+            const startDate = document.getElementById('rentalStartDate')?.value;
+            const endDate = document.getElementById('rentalEndDate')?.value;
+            
+            if (!startDate || !endDate) { showToast('Please select start and end dates'); return; }
+            
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+            
+            if (diffDays < 1) {
+                showToast('End date must be after start date');
+                return;
+            }
+            
+            const totalPrice = diffDays * perDayPrice;
+            
+            let guestName, guestCar, guestMobile;
+            
+            if (bookingFor === 'self') {
+                guestName = currentUser.name;
+                guestCar = document.getElementById('selfCar')?.value;
+                guestMobile = document.getElementById('selfMobile')?.value;
+            } else {
+                guestName = document.getElementById('guestName')?.value;
+                guestCar = document.getElementById('guestCar')?.value;
+                guestMobile = document.getElementById('guestMobile')?.value;
+            }
+            
+            if (!guestCar || !guestMobile) { showToast('Fill all fields'); return; }
+            if (guestMobile.length !== 10) { showToast('Enter valid 10-digit mobile'); return; }
+            
+            const slot = allSlots.find(s => s.id === slotId);
+            if (!slot || slot.status !== 'available') { showToast('Slot not available'); return; }
+            
+            const now = new Date();
+            const slotEndTime = new Date(slot.endTime);
+            if (now > slotEndTime) {
+                showToast('⚠️ This rental period has expired. Cannot book.');
+                return;
+            }
+            
+            // Set end time to end of selected end date
+            const newEndDate = new Date(endDate);
+            newEndDate.setHours(23, 59, 59);
+            
+            const booking = { 
+                id: Date.now().toString(), 
+                slotId, 
+                slotNumber: slot.slotNumber, 
+                hostId: slot.hostId, 
+                hostName: slot.hostName, 
+                hostFlat: slot.hostFlat, 
+                guestName, 
+                guestCar, 
+                guestMobile, 
+                bookedBy: currentUser.id, 
+                bookedByName: currentUser.name, 
+                bookedByFlat: `${currentUser.tower}-${currentUser.flat}`,
+                bookingType: 'rental',
+                rentalDays: diffDays,
+                startTime: new Date(startDate).toISOString(), 
+                endTime: newEndDate.toISOString(),
+                status: 'active', 
+                bookingCode: Math.floor(100000 + Math.random() * 900000), 
+                bookedAt: new Date().toISOString(), 
+                entryLogged: false, 
+                price: totalPrice
+            };
+            
+            await saveToFirebase('bookings', booking.id, booking);
+            await updateInFirebase(`slots/${slot.id}`, { status: 'booked' });
+            
+            const notificationMessage = `${currentUser.name} rented your slot ${slot.slotNumber} for ${diffDays} days (${startDate} to ${endDate}). Price: ₹${totalPrice}. ${bookingFor === 'self' ? 'For themselves' : `Guest: ${guestName} (${guestCar})`}`;
+            await addNotification(slot.hostId, '📅 Your Slot Has Been Rented', notificationMessage, 'booking');
+            
+            showToast(`✅ Rental confirmed! Code: ${booking.bookingCode}`);
+            closeBookModal();
+            await loadDataFromFirebase();
+            renderApp();
+        };
+        
+        window.toggleRentalGuestFields = function() {
+            const bookingFor = document.getElementById('bookingFor')?.value;
+            const selfFields = document.getElementById('rentalSelfFields');
+            const guestFields = document.getElementById('rentalGuestFields');
+            
+            if (bookingFor === 'self') {
+                selfFields.style.display = 'block';
+                guestFields.style.display = 'none';
+            } else {
+                selfFields.style.display = 'none';
+                guestFields.style.display = 'block';
+            }
+        };
+        
+        window.updateRentalTotalPrice = function(perDayPrice) {
+            const days = parseInt(document.getElementById('rentalDaysSelect')?.value) || 1;
+            const totalPrice = days * perDayPrice;
+            const priceInput = document.getElementById('rentalTotalPrice');
+            if (priceInput) priceInput.value = `₹${totalPrice} (${days} days @ ₹${perDayPrice}/day)`;
+        };
+        
+        window.confirmRentalBooking = async function(slotId, perDayPrice) {
+            const bookingFor = document.getElementById('bookingFor')?.value;
+            const selectedDays = parseInt(document.getElementById('rentalDaysSelect')?.value);
+            const totalPrice = selectedDays * perDayPrice;
+            
+            let guestName, guestCar, guestMobile;
+            
+            if (bookingFor === 'self') {
+                guestName = currentUser.name;
+                guestCar = document.getElementById('selfCar')?.value;
+                guestMobile = document.getElementById('selfMobile')?.value;
+            } else {
+                guestName = document.getElementById('guestName')?.value;
+                guestCar = document.getElementById('guestCar')?.value;
+                guestMobile = document.getElementById('guestMobile')?.value;
+            }
+            
+            if (!guestCar || !guestMobile) { showToast('Fill all fields'); return; }
+            if (guestMobile.length !== 10) { showToast('Enter valid 10-digit mobile'); return; }
+            
+            const slot = allSlots.find(s => s.id === slotId);
+            if (!slot || slot.status !== 'available') { showToast('Slot not available'); return; }
+            
+            const now = new Date();
+            const endTime = new Date(slot.endTime);
+            if (now > endTime) {
+                showToast('⚠️ This rental period has expired. Cannot book.');
+                return;
+            }
+            
+            // Calculate new end date based on selected days
+            const startDate = new Date(slot.startTime);
+            const newEndDate = new Date(startDate);
+            newEndDate.setDate(startDate.getDate() + selectedDays);
+            
+            const booking = { 
+                id: Date.now().toString(), 
+                slotId, 
+                slotNumber: slot.slotNumber, 
+                hostId: slot.hostId, 
+                hostName: slot.hostName, 
+                hostFlat: slot.hostFlat, 
+                guestName, 
+                guestCar, 
+                guestMobile, 
+                bookedBy: currentUser.id, 
+                bookedByName: currentUser.name, 
+                bookedByFlat: `${currentUser.tower}-${currentUser.flat}`,
+                bookingType: 'rental',
+                rentalDays: selectedDays,
+                startTime: slot.startTime, 
+                endTime: newEndDate.toISOString(),
+                status: 'active', 
+                bookingCode: Math.floor(100000 + Math.random() * 900000), 
+                bookedAt: new Date().toISOString(), 
+                entryLogged: false, 
+                price: totalPrice
+            };
+            
+            await saveToFirebase('bookings', booking.id, booking);
+            await updateInFirebase(`slots/${slot.id}`, { status: 'booked' });
+            
+            const notificationMessage = `${currentUser.name} rented your slot ${slot.slotNumber} for ${selectedDays} days. Price: ₹${totalPrice}. ${bookingFor === 'self' ? 'For themselves' : `Guest: ${guestName} (${guestCar})`}`;
+            await addNotification(slot.hostId, '📅 Your Slot Has Been Rented', notificationMessage, 'booking');
+            
+            showToast(`✅ Rental confirmed! Code: ${booking.bookingCode}`);
+            closeBookModal();
+            await loadDataFromFirebase();
+            renderApp();
+        };
+        
+        window.confirmGuestBooking = async function(slotId) {
+            const guestName = document.getElementById('guestName')?.value;
+            const guestCar = document.getElementById('guestCar')?.value;
+            const guestMobile = document.getElementById('guestMobile')?.value;
+            if (!guestName || !guestCar || !guestMobile) { showToast('Fill all fields'); return; }
+            if (guestMobile.length !== 10) { showToast('Enter valid 10-digit mobile'); return; }
+            
+            const slot = allSlots.find(s => s.id === slotId);
+            if (!slot || slot.status !== 'available') { showToast('Slot not available'); return; }
+            
+            const now = new Date();
+            const startTime = new Date(slot.startTime);
+            if (now > startTime) {
+                showToast('⚠️ Cannot book a slot that has already started');
+                return;
+            }
+            
+            const booking = { 
+                id: Date.now().toString(), 
+                slotId, 
+                slotNumber: slot.slotNumber, 
+                hostId: slot.hostId, 
+                hostName: slot.hostName, 
+                hostFlat: slot.hostFlat, 
+                guestName, 
+                guestCar, 
+                guestMobile, 
+                bookedBy: currentUser.id, 
+                bookedByName: currentUser.name, 
+                bookedByFlat: `${currentUser.tower}-${currentUser.flat}`,
+                bookingType: 'guest',
+                startTime: slot.startTime, 
+                endTime: slot.endTime, 
+                status: 'active', 
+                bookingCode: Math.floor(100000 + Math.random() * 900000), 
+                bookedAt: new Date().toISOString(), 
+                entryLogged: false, 
+                price: null
+            };
+            
+            await saveToFirebase('bookings', booking.id, booking);
+            await updateInFirebase(`slots/${slot.id}`, { status: 'booked' });
+            await addNotification(slot.hostId, '📅 Your Slot Has Been Booked', `${currentUser.name} booked your slot ${slot.slotNumber} for guest ${guestName} (${guestCar}). Booking code: ${booking.bookingCode}`, 'booking');
+            showToast(`✅ Booking confirmed! Code: ${booking.bookingCode}`);
+            closeBookModal();
+            await loadDataFromFirebase();
+            renderApp();
         };
         
         window.closeBookModal = function() { document.getElementById('bookModal')?.remove(); };
         
-        window.confirmBooking = async function(slotId) {
+                window.confirmBooking = async function(slotId) {
             const guestName = document.getElementById('guestName')?.value;
             const guestCar = document.getElementById('guestCar')?.value;
             const guestMobile = document.getElementById('guestMobile')?.value;
@@ -941,8 +1452,26 @@
             if (guestMobile.length !== 10) { showToast('Enter valid 10-digit mobile'); return; }
             const slot = allSlots.find(s => s.id === slotId);
             if (!slot || slot.status !== 'available') { showToast('Slot not available'); return; }
+            
             const now = new Date();
-            if (new Date(slot.startTime) < now) { showToast('⚠️ Cannot book a slot with past date/time'); return; }
+            const startTime = new Date(slot.startTime);
+            const endTime = new Date(slot.endTime);
+            
+            // For rental slots (with price) - can book anytime as long as not expired
+            if (slot.price) {
+                // Rental slot: only block if end time has passed
+                if (now > endTime) {
+                    showToast('⚠️ This rental period has expired. Cannot book.');
+                    return;
+                }
+            } else {
+                // Free slot: block if start time has passed
+                if (now > startTime) {
+                    showToast('⚠️ Cannot book a slot that has already started');
+                    return;
+                }
+            }
+            
             const booking = { id: Date.now().toString(), slotId, slotNumber: slot.slotNumber, hostId: slot.hostId, hostName: slot.hostName, hostFlat: slot.hostFlat, guestName, guestCar, guestMobile, bookedBy: currentUser.id, bookedByName: currentUser.name, bookedByFlat: `${currentUser.tower}-${currentUser.flat}`, startTime: slot.startTime, endTime: slot.endTime, status: 'active', bookingCode: Math.floor(100000 + Math.random() * 900000), bookedAt: new Date().toISOString(), entryLogged: false, price: slot.price };
             await saveToFirebase('bookings', booking.id, booking);
             await updateInFirebase(`slots/${slot.id}`, { status: 'booked' });
